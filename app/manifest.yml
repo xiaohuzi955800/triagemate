@@ -1,0 +1,272 @@
+modules:
+  rovo:agent:
+    - key: triage-mate
+      name: TriageMate
+      description: Triage Jira Service Management requests. I classify new requests,
+        find the best person to handle each one using your team's work graph,
+        and draft a first reply for the customer.
+      prompt: >
+        You are TriageMate, a service desk triage specialist who works inside
+        Jira Service Management.
+
+        Your job is to help support agents triage incoming customer requests
+        quickly and fairly. For each request you: (1) classify it into a
+        category, (2) find the best person to handle it using the Teamwork
+        Graph, and (3) draft a first reply for the customer.
+
+        HOW YOU WORK
+
+        - Always follow the triage-workflow skill for the full triage procedure,
+        and the expert-evidence
+          skill when interpreting expert search results.
+        - Start by fetching the request with get-request-details, or list
+        unassigned work with
+          list-unassigned-requests. Never guess issue keys, user names, or request contents — always read
+          them from the tools first.
+        - When the user asks to triage the newest unassigned requests, start
+        with the service project you know about: if you generated demo
+        requests in this conversation, list unassigned requests for that
+        project key first. Some sites auto-assign new requests, so if that
+        project has nothing unassigned, say so plainly and offer to triage a
+        specific request by key instead — you know the demo request keys from
+        the generation result. Only fall back to site-wide unassigned
+        requests if the user agrees.
+        - Classify the request from its summary and description. Categories:
+        Access & accounts, Software
+          issue, Hardware issue, Network & VPN, How-to question, Billing & orders, Onboarding, Other.
+        - Then call find-experts with the issue key, the category, and 2-4
+        keywords from the request.
+          Present the top candidate first, with evidence: how many similar requests they resolved, how many
+          open requests they currently have, and whether they have worked with the requester before.
+        - Draft a short, warm, professional first reply for the customer. Keep
+        it under 120 words, address
+          the customer's actual problem, and never promise a resolution time you cannot guarantee.
+
+        RULES YOU MUST FOLLOW
+
+        - Never assign a request or post a reply without the user confirming
+        first. Present the
+          recommendation, then ask: "Shall I assign this to <name> and post the draft reply?"
+        - Never invent evidence. If find-experts returns no candidates, say so
+        plainly and suggest the
+          request stays in the queue or goes to the on-call agent.
+        - If a tool call fails, say what failed and suggest the next step. Do
+        not pretend it worked. - Keep answers concise. Use a short table for
+        candidate experts. Link issue keys as plain text
+          (e.g. DESK-123), never fabricate links.
+        - When the user asks to set up a demo, call generate-demo-requests. It
+        creates clearly labelled
+          DEMO requests plus a few resolved history items so expert finding has data to work with.
+
+        You work for a support team that values speed, fairness, and evidence.
+        Every recommendation must be explainable in one sentence: who, and why
+        them.
+      conversationStarters:
+        - Triage the newest unassigned requests
+        - Who should handle this request?
+        - Generate demo requests for testing
+      actions:
+        - list-unassigned-requests
+        - get-request-details
+        - find-experts
+        - assign-request
+        - post-first-response
+        - generate-demo-requests
+      skills:
+        - triage-workflow
+        - expert-evidence
+
+  rovo:skill:
+    - key: triage-workflow
+      source:
+        dir: skills/triage-workflow
+      dependencies:
+        tools:
+          - list-unassigned-requests
+          - get-request-details
+          - find-experts
+          - assign-request
+          - post-first-response
+    - key: expert-evidence
+      source:
+        dir: skills/expert-evidence
+      dependencies:
+        tools:
+          - find-experts
+          - get-request-details
+
+  rovo:mcp:
+    - key: triage-mate-mcp
+      name: TriageMate Tools
+      tools:
+        - find-experts
+        - get-request-details
+        - list-unassigned-requests
+
+  action:
+    - key: list-unassigned-requests
+      name: List unassigned requests
+      function: listUnassignedRequests
+      actionVerb: GET
+      description: >
+        List unassigned, open requests in a Jira Service Management project,
+        newest first. Use this when the user wants to triage the queue or asks
+        what needs attention.
+      inputs:
+        projectKey:
+          title: Project key
+          type: string
+          required: false
+          description: The JSM project key (e.g. DESK). Omit to search all service
+            projects the user can see.
+        maxResults:
+          title: Max results
+          type: integer
+          required: false
+          description: Maximum requests to return (default 10, max 20).
+
+    - key: get-request-details
+      name: Get request details
+      function: getRequestDetails
+      actionVerb: GET
+      description: >
+        Get the full details of one request: summary, description, reporter,
+        status, priority, request type, and creation date. Always call this
+        before triaging a specific request.
+      inputs:
+        issueKey:
+          title: Issue key
+          type: string
+          required: true
+          description: The request key, e.g. DESK-123.
+
+    - key: find-experts
+      name: Find experts for a request
+      function: findExperts
+      actionVerb: GET
+      description: >
+        Find the best people to handle a request, ranked by similar requests
+        resolved, current open workload, and team connections from the
+        Teamwork Graph, with evidence for each candidate. Call this after
+        classifying the request.
+      inputs:
+        issueKey:
+          title: Issue key
+          type: string
+          required: true
+          description: The request key, e.g. DESK-123.
+        category:
+          title: Category
+          type: string
+          required: true
+          description: The request category, e.g. Access & accounts, Software issue,
+            Hardware issue.
+        keywords:
+          title: Keywords
+          type: string
+          required: false
+          description: 2-4 keywords from the request (comma separated) used to find
+            similar past requests.
+
+    - key: assign-request
+      name: Assign request
+      function: assignRequest
+      actionVerb: TRIGGER
+      description: >
+        Assign a request to a person. Only call this after the user has
+        confirmed the assignee.
+      inputs:
+        issueKey:
+          title: Issue key
+          type: string
+          required: true
+          description: The request key, e.g. DESK-123.
+        accountId:
+          title: Account ID
+          type: string
+          required: true
+          description: The Atlassian account ID of the person to assign, as returned by
+            find-experts.
+
+    - key: post-first-response
+      name: Post first response
+      function: postFirstResponse
+      actionVerb: TRIGGER
+      description: >
+        Post the drafted first reply as a customer-visible comment on the
+        request. Only call this after the user has confirmed the reply text.
+      inputs:
+        issueKey:
+          title: Issue key
+          type: string
+          required: true
+          description: The request key, e.g. DESK-123.
+        replyText:
+          title: Reply text
+          type: string
+          required: true
+          description: The exact reply text to post for the customer.
+
+    - key: generate-demo-requests
+      name: Generate demo requests
+      function: generateDemoRequests
+      actionVerb: TRIGGER
+      description: >
+        Create clearly labelled DEMO requests (12 open across 6 categories,
+        plus 6 resolved history items) in a service project, so triage and
+        expert finding can be demonstrated on a fresh site. Only call when
+        the user explicitly asks for demo data.
+      inputs:
+        projectKey:
+          title: Project key
+          type: string
+          required: false
+          description: The JSM project key to create demo requests in. Omit to use the
+            first service project found.
+
+  jira:issuePanel:
+    - key: triage-panel
+      resource: panel
+      render: native
+      resolver:
+        function: panel-resolver
+      title: TriageMate
+      icon: https://developer.atlassian.com/platform/forge/images/icons/issue-panel-icon.svg
+      description: Find the best person to handle this request, with evidence, and
+        assign with one click.
+
+  function:
+    - key: listUnassignedRequests
+      handler: index.listUnassignedRequests
+    - key: getRequestDetails
+      handler: index.getRequestDetails
+    - key: findExperts
+      handler: index.findExperts
+    - key: assignRequest
+      handler: index.assignRequest
+    - key: postFirstResponse
+      handler: index.postFirstResponse
+    - key: generateDemoRequests
+      handler: index.generateDemoRequests
+    - key: panel-resolver
+      handler: panel-resolver.handler
+
+resources:
+  - key: panel
+    path: src/frontend/panel.jsx
+
+permissions:
+  scopes:
+    - read:jira-work
+    - write:jira-work
+    - read:jira-user
+    - read:servicedesk-request
+    - write:servicedesk-request
+    - read:graph:user:atlassian
+    - read:graph:issue:jira
+    - read:graph:team:atlassian
+
+app:
+  runtime:
+    name: nodejs24.x
+  id: ari:cloud:ecosystem::app/5423324e-16fb-4127-81d4-1fd58751a9d9

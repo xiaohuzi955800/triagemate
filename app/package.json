@@ -1,0 +1,1 @@
+{"dependencies":{"@forge/api":"^8.5.0","@forge/bridge":"^7.3.0","@forge/react":"^12.5.0","@forge/resolver":"^1.6.5"},"description":"TriageMate for JSM — a Rovo agent that triages service desk requests using the Teamwork Graph. Codegeist 2026 entry.","license":"MIT","main":"src/index.js","name":"triage-mate","scripts":{"test":"node --test"},"version":"1.0.0"}
